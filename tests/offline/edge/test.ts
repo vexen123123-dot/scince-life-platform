@@ -1,0 +1,44 @@
+import { db } from './fake.ts';
+let handler: (r: Request) => Promise<Response>;
+(globalThis as any).Deno = { env: { get: (k: string) => ({ SUPABASE_URL: 'http://x', SUPABASE_SERVICE_ROLE_KEY: 'k', ADMIN_BOOTSTRAP_SECRET: 'S'.repeat(32) } as any)[k] }, serve: (h: any) => { handler = h; } };
+const F = '/var/tmp/edgetest/fn/';
+const call = async (body: any, headers: any = {}) => { const r = await handler(new Request('http://x', { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) })); return { s: r.status, b: await r.json() }; };
+let pass = 0, fail = 0; const ok = (n: string, c: boolean, d?: any) => { c ? pass++ : fail++; console.log(c ? 'PASS' : 'FAIL', n, c ? '' : JSON.stringify(d)); };
+const SID = '11111111-1111-1111-1111-111111111111';
+db.users['admin-tok'] = { id: 'A1' }; db.profiles['A1'] = { role: 'admin', is_active: true };
+db.users['stud-tok'] = { id: 'S1' }; db.profiles['S1'] = { role: 'student', is_active: true };
+db.users['off-tok'] = { id: 'O1' }; db.profiles['O1'] = { role: 'admin', is_active: false };
+
+await import(F + 'provision-admin/index.ts'); let r;
+r = await call({ email: 'a@b.co', password: 'longenough1', full_name: 'x' }); ok('provision: بلا مصادقة → 403', r.s === 403, r);
+r = await call({ email: 'a@b.co', password: 'longenough1', full_name: 'x' }, { 'x-bootstrap-secret': 'wrong' }); ok('provision: سر خاطئ → 403', r.s === 403, r);
+r = await call({ email: 'a@b.co', password: 'longenough1', full_name: 'x' }, { Authorization: 'Bearer stud-tok' }); ok('provision: طالب → 403', r.s === 403, r);
+r = await call({ email: 'a@b.co', password: 'longenough1', full_name: 'x' }, { Authorization: 'Bearer off-tok' }); ok('provision: مسؤول موقوف → 403', r.s === 403, r);
+r = await call({ email: 'bad', password: 'longenough1', full_name: 'x' }, { 'x-bootstrap-secret': 'S'.repeat(32) }); ok('provision: بريد غير صالح → 400', r.s === 400, r);
+r = await call({ email: 'a@b.co', password: 'short', full_name: 'x' }, { 'x-bootstrap-secret': 'S'.repeat(32) }); ok('provision: كلمة مرور ضعيفة → 400', r.s === 400, r);
+r = await call({ email: 'a@b.co', password: 'longenough1', full_name: 'سليمان' }, { 'x-bootstrap-secret': 'S'.repeat(32) }); ok('provision: سر صحيح → ينشئ مسؤولاً', r.s === 200 && r.b.role === 'admin', r);
+ok('provision: تحديث الدور إلى admin في profiles', db.log.some((l: any) => l.table === 'profiles' && l.op === 'update' && l.v.role === 'admin'));
+ok('provision: سُجّل في audit', db.log.some((l: any) => l.table === 'audit_logs'));
+r = await call({ email: 'c@d.co', password: 'longenough1', full_name: 'رولا' }, { Authorization: 'Bearer admin-tok' }); ok('provision: مسؤول مسجّل → 200', r.s === 200, r);
+
+handler = undefined as any; db.log.length = 0;
+await import(F + 'grade-submission/index.ts?g');
+db.submissions[SID] = { id: SID, status: 'submitted', assignments: { max_score: 10 } };
+r = await call({ submission_id: SID, score: 5 }, { Authorization: 'Bearer stud-tok' }); ok('grade: طالب → 403', r.s === 403, r);
+r = await call({ submission_id: SID, score: 5 }); ok('grade: بلا مصادقة → 403', r.s === 403, r);
+r = await call({ submission_id: 'x', score: 5 }, { Authorization: 'Bearer admin-tok' }); ok('grade: معرّف غير صالح → 400', r.s === 400, r);
+r = await call({ submission_id: SID, score: 11 }, { Authorization: 'Bearer admin-tok' }); ok('grade: درجة > العظمى → 400', r.s === 400, r);
+r = await call({ submission_id: SID, score: -1 }, { Authorization: 'Bearer admin-tok' }); ok('grade: درجة سالبة → 400', r.s === 400, r);
+r = await call({ submission_id: SID, score: 'abc' }, { Authorization: 'Bearer admin-tok' }); ok('grade: درجة غير رقمية → 400', r.s === 400, r);
+r = await call({ submission_id: SID, score: 8, feedback: 'ممتاز' }, { Authorization: 'Bearer admin-tok' }); ok('grade: درجة صحيحة → 200', r.s === 200 && r.b.score === 8, r);
+ok('grade: كُتبت الدرجة والملاحظة وسجل التدقيق', ['grades', 'feedback', 'audit_logs', 'submission_history'].every((t) => db.log.some((l: any) => l.table === t)));
+r = await call({ action: 'return', submission_id: SID }, { Authorization: 'Bearer admin-tok' }); ok('return: بلا ملاحظة → 400', r.s === 400, r);
+r = await call({ action: 'return', submission_id: SID, feedback: 'أعد الصياغة' }, { Authorization: 'Bearer admin-tok' }); ok('return: مع ملاحظة → 200', r.s === 200 && r.b.status === 'returned', r);
+db.submissions[SID].status = 'draft'; r = await call({ submission_id: SID, score: 5 }, { Authorization: 'Bearer admin-tok' }); ok('grade: مسودة غير مسلّمة → 400', r.s === 400, r);
+
+handler = undefined as any; db.log.length = 0; db.created.length = 0;
+await import(F + 'admin-create-student/index.ts?s');
+r = await call({ action: 'create', email: 's@x.co', password: 'longenough1', full_name: 'ط' }, { Authorization: 'Bearer stud-tok' }); ok('create-student: طالب → 403', r.s === 403, r);
+r = await call({ action: 'create', email: 's@x.co', password: 'longenough1', full_name: 'سليمان بديع قديح' }, { Authorization: 'Bearer admin-tok' }); ok('create-student: مسؤول → 200', r.s === 200, r);
+ok('create-student: لا يُرقّى لـ admin', !db.log.some((l: any) => l.table === 'profiles' && l.v?.role === 'admin'));
+console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

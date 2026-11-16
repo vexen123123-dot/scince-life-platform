@@ -1,0 +1,18 @@
+# إعدادات Supabase CLI (المشروع يُربط بالأمر: npx supabase link --project-ref YOUR_PROJECT_REF)
+project_id = "science-life"
+
+[api]
+enabled = true
+schemas = ["public"]
+
+[auth]
+enable_signup = false          # لا تسجيل عام: الحسابات تُنشأ عبر دوال موثوقة فقط
+minimum_password_length = 10
+
+[functions.provision-admin]
+# false: الدالة تتحقق بنفسها (مسؤول أو سر التهيئة) لأن التهيئة الأولى تتم بلا JWT
+verify_jwt = false
+[functions.admin-create-student]
+verify_jwt = true
+[functions.grade-submission]
+verify_jwt = true

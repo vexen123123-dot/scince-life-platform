@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { direction: rtl; scroll-behavior: smooth; }
+  body { @apply bg-soft-50 font-sans text-navy-900 antialiased; font-family: 'Tajawal', 'Cairo', system-ui, sans-serif; }
+  :focus-visible { @apply outline-none ring-2 ring-cyan-500 ring-offset-2; }
+  table { @apply w-full border-collapse; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
+}
