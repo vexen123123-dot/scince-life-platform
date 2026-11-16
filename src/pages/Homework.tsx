@@ -62,7 +62,7 @@ export function HomeworkDetail() {
   const { assignment: a, questions, attachments, submission, files, grade, feedback } = data;
   const cur: A = answers ?? Object.fromEntries(data.answers.map((x) => [x.question_id, x.answer]));
   const editable = !submission || submission.status === 'draft' || submission.status === 'returned';
-  const state = studentState(a, submission);
+  const state = studentState(a, submission ?? undefined);
   const late = a.due_at && new Date(a.due_at) < new Date();
 
   const persist = async () => {
