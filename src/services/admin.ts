@@ -1,4 +1,4 @@
-
+```ts
 import { supabase } from '../lib/supabase';
 import type { Assignment, AssignmentQuestion, Attachment, AuditLog, Profile, Submission } from '../types/db';
 
@@ -125,3 +125,4 @@ export const quizStats = async () => {
   ]);
   if (q.error) throw q.error; if (a.error) throw a.error; return { quizzes: q.data ?? [], attempts: a.data ?? [] };
 };
+```
