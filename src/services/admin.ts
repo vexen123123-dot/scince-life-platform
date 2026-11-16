@@ -1,8 +1,7 @@
 import { supabase } from '../lib/supabase';
 import type { Assignment, AssignmentQuestion, Attachment, AuditLog, Profile, Submission } from '../types/db';
 
-async function invoke<T>(fn: string, body: unknown): Promise<T> {
-  const { data, error } = await supabase.functions.invoke(fn, { body });
+async function invoke<T>(fn: string, body: Record<string, any>): Promise<T> {
   if (error) {
     // نقرأ رسالة الخطأ من جسم الاستجابة إن وُجدت
     let msg = error.message;
