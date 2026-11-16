@@ -1,3 +1,4 @@
+
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Download, FileText, Paperclip, Trash2, Upload } from 'lucide-react';
@@ -11,11 +12,13 @@ import * as hw from '../services/homework';
 import type { Assignment, Grade, Submission } from '../types/db';
 
 export type StudentState = 'pending' | 'draft' | 'submitted' | 'returned' | 'graded' | 'missing';
+
 export const studentState = (a: Assignment, s?: Submission): StudentState => {
   if (s && s.status !== 'draft') return s.status;
   if (a.due_at && new Date(a.due_at) < new Date()) return 'missing';
   return s ? 'draft' : 'pending';
 };
+
 export const stateLabel = (s: StudentState) => (s === 'pending' ? 'لم يبدأ' : s === 'missing' ? 'متأخر / لم يُسلَّم' : statusLabel[s]);
 export const stateTone = (s: StudentState) => (s === 'missing' ? 'red' : s === 'pending' ? 'gray' : statusTone(s));
 
@@ -23,15 +26,19 @@ export function HomeworkList() {
   const { session } = useAuth();
   const [tab, setTab] = useState<'all' | StudentState>('all');
   const { data, loading, error, reload } = useAsync(() => hw.listMyAssignments(session!.user.id), [session?.user.id]);
+
   const rows = useMemo(() => (data?.assignments ?? []).map((a) => {
     const s = data!.submissions.find((x) => x.assignment_id === a.id);
     const g = s ? data!.grades.find((x) => x.submission_id === s.id) : undefined;
-    return { a, s, g, st: studentState(a, s) };
+    return { a, s, g, st: studentState(a, s ?? undefined) };
   }), [data]);
+
   if (loading) return <Spinner />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
+
   const shown = rows.filter((r) => tab === 'all' || r.st === tab || (tab === 'pending' && r.st === 'draft'));
   const tabs: [typeof tab, string][] = [['all', 'الكل'], ['pending', 'المطلوبة'], ['submitted', 'المسلَّمة'], ['returned', 'للتصحيح'], ['graded', 'المصحَّحة'], ['missing', 'المتأخرة']];
+
   return (
     <>
       <PageHeader title="واجباتي" subtitle="اقرأ التعليمات، أجب إلكترونياً أو ارفع صور حلّك المكتوب بخط اليد." />
@@ -50,15 +57,18 @@ type A = Record<string, { text?: string; value?: string | boolean }>;
 
 export function HomeworkDetail() {
   const { id = '' } = useParams();
-  const { session } = useAuth(); const toast = useToast();
+  const { session } = useAuth();
+  const toast = useToast();
   const uid = session!.user.id;
   const { data, loading, error, reload } = useAsync(() => hw.loadAssignmentForStudent(id, uid), [id, uid]);
   const [answers, setAnswers] = useState<A | null>(null);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
+
   if (loading) return <Spinner />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
   if (!data?.assignment) return <ErrorBox message="الواجب غير موجود أو غير مُسند إليك." />;
+
   const { assignment: a, questions, attachments, submission, files, grade, feedback } = data;
   const cur: A = answers ?? Object.fromEntries(data.answers.map((x) => [x.question_id, x.answer]));
   const editable = !submission || submission.status === 'draft' || submission.status === 'returned';
@@ -67,25 +77,63 @@ export function HomeworkDetail() {
 
   const persist = async () => {
     const sub = await hw.ensureSubmission(a.id, uid);
-    await hw.saveAnswers(sub.id, cur); return sub;
+    await hw.saveAnswers(sub.id, cur);
+    return sub;
   };
-  const run = async (fn: () => Promise<void>, ok: string) => { setBusy(true); try { await fn(); toast.success(ok); await reload(); setAnswers(null); } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); } };
-  const open = async (path: string) => { try { window.open(await hw.signedUrl(path), '_blank', 'noopener'); } catch (e) { toast.error(errMsg(e)); } };
+
+  const run = async (fn: () => Promise<void>, ok: string) => {
+    setBusy(true);
+    try {
+      await fn();
+      toast.success(ok);
+      await reload();
+      setAnswers(null);
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const open = async (path: string) => {
+    try {
+      window.open(await hw.signedUrl(path), '_blank', 'noopener');
+    } catch (e) {
+      toast.error(errMsg(e));
+    }
+  };
 
   const onFiles = async (list: FileList | null) => {
     if (!list?.length) return;
-    const bad = Array.from(list).map(validateFile).find(Boolean); if (bad) { toast.error(bad); return; }
+    const bad = Array.from(list).map(validateFile).find(Boolean);
+    if (bad) {
+      toast.error(bad);
+      return;
+    }
     setUploading(true);
-    try { const sub = await persist(); for (const f of Array.from(list)) await hw.uploadSubmissionFile(uid, a.id, sub.id, f); toast.success('تم رفع الملفات'); await reload(); setAnswers(cur); }
-    catch (e) { toast.error(errMsg(e)); } finally { setUploading(false); }
+    try {
+      const sub = await persist();
+      for (const f of Array.from(list)) await hw.uploadSubmissionFile(uid, a.id, sub.id, f);
+      toast.success('تم رفع الملفات');
+      await reload();
+      setAnswers(cur);
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setUploading(false);
+    }
   };
+
   const submit = () => run(async () => {
     const hasAnswer = Object.values(cur).some((v) => (v.text ?? '').toString().trim() || typeof v.value === 'boolean' || v.value);
     if (!hasAnswer && files.length === 0) throw new Error('أجب عن سؤال واحد على الأقل أو ارفع ملفاً قبل التسليم.');
-    const sub = await persist(); await hw.submitSubmission(sub.id);
+    const sub = await persist();
+    await hw.submitSubmission(sub.id);
   }, 'تم تسليم الواجب ✅');
+
   const reopen = () => run(async () => {
-    const { error: e } = await (await import('../lib/supabase')).supabase.from('submissions').update({ status: 'draft' }).eq('id', submission!.id); if (e) throw e;
+    const { error: e } = await (await import('../lib/supabase')).supabase.from('submissions').update({ status: 'draft' }).eq('id', submission!.id);
+    if (e) throw e;
   }, 'يمكنك الآن تعديل إجابتك ثم إعادة التسليم');
 
   return (
